@@ -12,10 +12,8 @@ class ExperimentConfig:
     num_slices: int = 9
 
     scale: int = 4
-    #blur_sigma: float = 1.0
-    #noise_sigma: float = 0.0
-    blur_sigma=0.55,
-    noise_sigma=0.01,
+    blur_sigma: float = 0.55
+    noise_sigma: float = 0.01
 
     force_square_size: Optional[int] = None
     save_all_figures: bool = False

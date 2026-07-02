@@ -7,6 +7,7 @@ comparison CSV and Markdown summary.
 """
 
 import csv
+import argparse
 import os
 from pathlib import Path
 from typing import Dict, List
@@ -16,6 +17,20 @@ from src.mri_sr.experiment import run_experiment
 
 
 AXES = ["sagittal", "coronal", "axial"]
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run MRI SR experiments for all anatomical orientations")
+    parser.add_argument("--input-path", default="data/sub-0_ses-1_T1w.nii")
+    parser.add_argument("--base-results-dir", default="results")
+    parser.add_argument("--slice-index", type=int, default=-1)
+    parser.add_argument("--num-slices", type=int, default=30)
+    parser.add_argument("--scale", type=int, default=2)
+    parser.add_argument("--blur-sigma", type=float, default=0.45)
+    parser.add_argument("--noise-sigma", type=float, default=0.02)
+    parser.add_argument("--force-square-size", type=int, default=None)
+    parser.add_argument("--save-all-figures", action="store_true")
+    return parser.parse_args()
 
 
 def read_csv_rows(path: Path) -> List[Dict[str, str]]:
@@ -144,29 +159,29 @@ def create_final_summary(rows: List[Dict[str, object]], output_path: Path) -> No
 
 
 def main() -> None:
-    input_path = "data/sub-0_ses-1_T1w.nii"
-    base_results_dir = Path("results")
+    args = parse_args()
+
+    input_path = args.input_path
+    base_results_dir = Path(args.base_results_dir)
     final_dir = base_results_dir / "final_comparison"
     final_dir.mkdir(parents=True, exist_ok=True)
 
     all_aggregate_rows: List[Dict[str, object]] = []
 
     for axis in AXES:
-        output_dir = base_results_dir / f"scale4_{axis}"
+        output_dir = base_results_dir / f"scale2_{axis}"
 
         config = ExperimentConfig(
             input_path=input_path,
             output_dir=str(output_dir),
             slice_axis=axis,
-            slice_index=-1,
-            num_slices=9,
-            scale=4,
-            # blur_sigma=1.0,
-            # noise_sigma=0.0,
-            blur_sigma=0.55,
-            noise_sigma=0.01,
-            force_square_size=None,
-            save_all_figures=True,
+            slice_index=args.slice_index,
+            num_slices=args.num_slices,
+            scale=args.scale,
+            blur_sigma=args.blur_sigma,
+            noise_sigma=args.noise_sigma,
+            force_square_size=args.force_square_size,
+            save_all_figures=args.save_all_figures,
         )
 
         print("\n" + "=" * 80)
