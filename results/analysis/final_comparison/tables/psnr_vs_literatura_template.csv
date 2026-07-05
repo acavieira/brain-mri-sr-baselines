@@ -1,0 +1,13 @@
+slice_axis,method,our_psnr_mean_db,paper_id,paper_dataset,paper_psnr_db,delta_db_ours_minus_paper,notes
+axial,bicubic,20.7698,,,,,
+axial,lanczos,20.8123,,,,,
+coronal,bicubic,20.7401,,,,,
+coronal,lanczos,20.7638,,,,,
+axial,nearest,20.1892,,,,,
+sagittal,bicubic,20.1449,,,,,
+sagittal,lanczos,20.1932,,,,,
+axial,bilinear,20.171,,,,,
+coronal,nearest,20.2559,,,,,
+coronal,bilinear,20.2081,,,,,
+sagittal,nearest,19.5803,,,,,
+sagittal,bilinear,19.5226,,,,,

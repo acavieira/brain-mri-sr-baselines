@@ -1,3 +1,5 @@
+"""Synthetic LR generation used by baseline and diffusion data pipelines."""
+
 import cv2
 import numpy as np
 
@@ -9,11 +11,13 @@ def degrade_image(
     noise_sigma: float,
     rng: np.random.Generator,
 ) -> np.ndarray:
+    """Create an LR image from HR by blur, downsampling, and optional noise."""
     if scale < 2:
         raise ValueError("Scale must be >= 2")
 
     degraded = hr_img.astype(np.float32)
 
+    # Blur is applied before downsampling to mimic detail loss.
     if blur_sigma > 0:
         degraded = cv2.GaussianBlur(degraded, (0, 0), blur_sigma)
 
@@ -21,8 +25,10 @@ def degrade_image(
     lr_w = max(8, int(round(w / scale)))
     lr_h = max(8, int(round(h / scale)))
 
+    # INTER_AREA is stable for image size reduction.
     lr_img = cv2.resize(degraded, (lr_w, lr_h), interpolation=cv2.INTER_AREA)
 
+    # Additive Gaussian noise is optional and controlled by noise_sigma.
     if noise_sigma > 0:
         noise = rng.normal(0.0, noise_sigma, size=lr_img.shape).astype(np.float32)
         lr_img = lr_img + noise

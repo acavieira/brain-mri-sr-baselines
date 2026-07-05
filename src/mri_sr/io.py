@@ -1,3 +1,5 @@
+"""I/O helpers for loading NIfTI data and extracting 2D slices."""
+
 import os
 from typing import List
 
@@ -6,10 +8,12 @@ import numpy as np
 
 
 def ensure_dir(path: str) -> None:
+    """Create a directory when it does not exist."""
     os.makedirs(path, exist_ok=True)
 
 
 def load_nifti_volume(path: str) -> np.ndarray:
+    """Load one 3D NIfTI volume as float32."""
     if not (path.lower().endswith(".nii") or path.lower().endswith(".nii.gz")):
         raise ValueError("Input must be a NIfTI file: .nii or .nii.gz")
 
@@ -23,6 +27,7 @@ def load_nifti_volume(path: str) -> np.ndarray:
 
 
 def get_axis_length(data: np.ndarray, axis: str) -> int:
+    """Return axis size using anatomical axis names."""
     if axis == "sagittal":
         return data.shape[0]
     if axis == "coronal":
@@ -33,6 +38,7 @@ def get_axis_length(data: np.ndarray, axis: str) -> int:
 
 
 def choose_slice_indices(data: np.ndarray, axis: str, center_index: int, num_slices: int) -> List[int]:
+    """Return valid indices around a center location for one axis."""
     axis_len = get_axis_length(data, axis)
 
     if center_index < 0:
@@ -50,6 +56,7 @@ def choose_slice_indices(data: np.ndarray, axis: str, center_index: int, num_sli
 
 
 def extract_slice(data: np.ndarray, axis: str, slice_index: int) -> np.ndarray:
+    """Extract one 2D anatomical slice and apply display orientation fix."""
     if axis == "sagittal":
         img = data[slice_index, :, :]
     elif axis == "coronal":
@@ -59,6 +66,7 @@ def extract_slice(data: np.ndarray, axis: str, slice_index: int) -> np.ndarray:
     else:
         raise ValueError(f"Unknown axis: {axis}")
 
+    # Keep a consistent orientation in saved figures.
     img = np.transpose(img)
     img = np.flipud(img)
     return img.astype(np.float32)

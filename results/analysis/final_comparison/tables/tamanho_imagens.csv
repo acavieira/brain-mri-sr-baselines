@@ -1,0 +1,4 @@
+slice_axis,num_slices,scale_mean,hr_height,hr_width,hr_pixels,lr_height,lr_width,lr_pixels,pixel_ratio_hr_over_lr
+axial,31,2.0,256,236,60416,128,118,15104,4.0
+coronal,31,2.0,256,236,60416,128,118,15104,4.0
+sagittal,31,2.0,256,256,65536,128,128,16384,4.0

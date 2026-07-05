@@ -1,0 +1,6 @@
+# Python cache folders
+__pycache__/
+**/__pycache__/
+
+# Diffusion checkpoints can exceed GitHub file-size limits
+results/diffusion/training/**/*.pt

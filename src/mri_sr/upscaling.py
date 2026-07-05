@@ -1,3 +1,5 @@
+"""Classical interpolation methods used in the baseline comparison."""
+
 from typing import Tuple
 
 import cv2
@@ -16,6 +18,7 @@ _INTERPOLATION_MAP = {
 
 
 def upscale_image(method: str, lr_img: np.ndarray, target_shape: Tuple[int, int]) -> np.ndarray:
+    """Upscale an LR image to target shape using the selected interpolation."""
     if method not in _INTERPOLATION_MAP:
         raise ValueError(f"Unknown method: {method}")
 

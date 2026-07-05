@@ -1,8 +1,12 @@
 # MRI Super-Resolution Baseline Experiment
 
-Este repositório contém uma experiência inicial desenvolvida no contexto da minha tese de mestrado, centrada na aplicação de super-resolução a imagens médicas, em particular imagens de ressonância magnética cerebral em formato NIfTI.
+Este repositório contém o pipeline da minha tese de mestrado para super-resolução em imagem médica (MRI cerebral em NIfTI), incluindo:
 
-Nesta fase, o objetivo não é ainda treinar um modelo avançado de super-resolução, mas sim construir uma baseline experimental controlada. A experiência parte de um volume MRI de alta resolução, extrai várias fatias 2D, cria artificialmente versões de baixa resolução e compara diferentes métodos clássicos de upscaling com a imagem original.
+- baseline clássica de interpolação;
+- geração de tabelas para relatório/tese;
+- estrutura inicial de diffusion model com U-Net condicional treinada de raiz.
+
+O pipeline parte de volumes MRI, extrai fatias 2D, cria versões LR sintéticas controladas e compara reconstruções SR com a referência HR.
 
 A baseline permite perceber, de forma quantitativa e visual, até que ponto métodos como nearest-neighbour, bilinear, bicubic e Lanczos conseguem aproximar a imagem original depois de uma degradação artificial. Esta análise será útil para comparar, numa fase posterior, métodos mais avançados como CNNs, GANs, transformers ou diffusion models.
 
@@ -19,17 +23,19 @@ Extração de fatias 2D em diferentes orientações anatómicas
         ↓
 Normalização robusta das intensidades
         ↓
-Criação artificial de uma versão low-resolution
+Synthetic blur (Gaussiano)
         ↓
-Aplicação de métodos clássicos de upscaling
+Downsampling (HR -> LR)
+        ↓
+Ruído opcional na LR
+        ↓
+Upscaling (métodos clássicos ou diffusion U-Net)
         ↓
 Comparação com a fatia original high-resolution
         ↓
-Cálculo de métricas quantitativas
+Cálculo de métricas quantitativas e tempos
         ↓
-Geração de mapas de erro e relatórios visuais
-        ↓
-Comparação final entre orientações anatómicas e métodos
+Geração de mapas de erro, tabelas e comparação final
 ```
 
 A imagem original é tratada como **HR — High Resolution**.
@@ -56,13 +62,23 @@ Exemplo:
 
 ```text
 results/
-├── scale4_sagittal/
-├── scale4_coronal/
-├── scale4_axial/
-└── final_comparison/
+├── baseline_methods/
+│   ├── scale2_sagittal/
+│   ├── scale2_coronal/
+│   └── scale2_axial/
+├── analysis/
+│   └── final_comparison/
+└── diffusion/
+    ├── training/
+    ├── evaluation/
+    └── diagrams/
 ```
 
-A pasta `final_comparison` contém a comparação agregada entre todas as orientações e métodos.
+Esta organização separa claramente:
+
+- resultados da baseline de métodos clássicos;
+- tabelas e análises finais;
+- artefactos de treino/avaliação de difusão.
 
 ---
 
@@ -93,12 +109,19 @@ mri-sr-experiment/
 ├── requirements.txt
 ├── run_experiment.py
 ├── run_all_experiments.py
+├── build_thesis_tables.py
+├── run_diffusion_training.py
+├── run_diffusion_inference.py
 ├── create_pipeline_figure.py
+├── create_diffusion_diagram.py
 │
 ├── data/
 │   └── sub-0_ses-1_T1w.nii
 │
 ├── results/
+│   ├── baseline_methods/
+│   ├── analysis/
+│   └── diffusion/
 │
 └── src/
     └── mri_sr/
@@ -110,7 +133,15 @@ mri-sr-experiment/
         ├── upscaling.py
         ├── metrics.py
         ├── reports.py
-        └── experiment.py
+        ├── experiment.py
+        ├── thesis_tables.py
+        └── diffusion/
+            ├── config.py
+            ├── dataset.py
+            ├── model.py
+            ├── scheduler.py
+            ├── train.py
+            └── inference.py
 ```
 
 ---
@@ -135,13 +166,25 @@ coronal
 axial
 ```
 
-Para cada orientação, cria uma pasta separada em `results/`.
+Para cada orientação, cria uma pasta separada em:
 
-No final, cria uma pasta `results/final_comparison/` com:
+```text
+results/baseline_methods/scale{scale}_{axis}/
+```
+
+No final, cria os agregados em:
+
+```text
+results/analysis/final_comparison/
+```
+
+com:
 
 ```text
 all_axes_aggregate.csv
+all_axes_by_slice.csv
 final_results_summary.md
+tables/*.csv
 ```
 
 O ficheiro `all_axes_aggregate.csv` junta os resultados agregados de todas as orientações.
@@ -150,11 +193,34 @@ O ficheiro `final_results_summary.md` apresenta uma comparação em formato leg�
 
 ---
 
+### `build_thesis_tables.py`
+
+Gera tabelas finais para o relatório/tese a partir de `results/analysis/final_comparison/`.
+
+Principais saídas:
+
+- ranking composto por eixo+método;
+- ranking global por método (agregado entre eixos);
+- tabela de tempos de processamento;
+- tabela de tamanhos HR/LR;
+- template CSV para comparação de PSNR com papers.
+
+---
+
+### `run_diffusion_training.py` e `run_diffusion_inference.py`
+
+Scripts de treino e avaliação da diffusion U-Net condicional treinada de raiz.
+
+- `run_diffusion_training.py`: treino DDPM com U-Net condicional (sem pretrained).
+- `run_diffusion_inference.py`: carrega checkpoint e avalia no mesmo formato de métricas/tabelas da baseline.
+
+---
+
 ### `create_pipeline_figure.py`
 
 Gera uma figura esquemática do pipeline experimental.
 
-A figura representa as etapas:
+A figura representa as etapas com a ordem correta do *synthetic blur*:
 
 ```text
 NIfTI volume
@@ -163,7 +229,11 @@ slice extraction
     ↓
 preprocessing
     ↓
-synthetic degradation
+synthetic blur
+    ↓
+downsampling (HR -> LR)
+    ↓
+optional LR noise
     ↓
 upscaling methods
     ↓
@@ -172,7 +242,24 @@ metrics and error maps
 final comparison
 ```
 
-Esta figura pode ser usada no relatório, na tese ou numa apresentação para explicar a experiência.
+Saídas por omissão:
+
+```text
+results/analysis/final_comparison/diagrams/pipeline_baseline_en.png
+results/analysis/final_comparison/diagrams/pipeline_baseline_pt.png
+```
+
+---
+
+### `create_diffusion_diagram.py`
+
+Gera um diagrama do core do modelo de difusão (treino + inferência) dentro da pasta de difusão.
+
+Saída por omissão:
+
+```text
+results/diffusion/diagrams/diffusion_model_pipeline.png
+```
 
 ---
 
@@ -562,29 +649,50 @@ Responsabilidades:
 
 ## Instalação
 
+Forma mais simples:
+
+```bash
+bash bootstrap_env.sh
+```
+
+Recomendado no macOS/Linux: usa Python 3.11 ou 3.12 para criar o ambiente virtual. Algumas builds de Python 3.13 empacotadas com conda/miniconda podem travar durante o bootstrap do `venv`/`ensurepip`.
+
 Criar ambiente virtual:
 
 ```bash
-python -m venv .venv
+python3.11 -m venv .venv
 ```
 
-Ativar no Windows PowerShell:
+Se não tiveres `python3.11`, uma alternativa estável é usar conda:
+
+```bash
+conda create -n mri-sr python=3.11
+conda activate mri-sr
+```
+
+Se criares `.venv`, ativa assim no Windows PowerShell:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
-Ativar no Mac/Linux:
+Se criares `.venv`, ativa assim no Mac/Linux:
 
 ```bash
 source .venv/bin/activate
 ```
 
+Se optares por conda, ativa o ambiente com:
+
+```bash
+conda activate mri-sr
+```
+
 Instalar dependências:
 
 ```bash
-pip install --upgrade pip
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
 Conteúdo recomendado do `requirements.txt`:
@@ -596,6 +704,14 @@ matplotlib
 nibabel
 image-similarity-measures
 ```
+
+Para a parte de diffusion, instala também o PyTorch (com a wheel adequada ao teu sistema):
+
+```bash
+python -m pip install torch torchvision
+```
+
+Se o comando `python -m venv .venv` ficar bloqueado, é quase sempre um problema do Python/base environment e não do projeto. Nesse caso, cria o ambiente com outra versão do Python e repete a instalação acima.
 
 ---
 
@@ -628,17 +744,85 @@ python run_all_experiments.py
 Este comando cria resultados separados para:
 
 ```text
-results/scale4_sagittal/
-results/scale4_coronal/
-results/scale4_axial/
+results/baseline_methods/scale2_sagittal/
+results/baseline_methods/scale2_coronal/
+results/baseline_methods/scale2_axial/
 ```
 
 E depois cria uma comparação final:
 
 ```text
-results/final_comparison/
+results/analysis/final_comparison/
 ├── all_axes_aggregate.csv
-└── final_results_summary.md
+├── all_axes_by_slice.csv
+├── final_results_summary.md
+└── tables/
+```
+
+---
+
+## Gerar tabelas para relatório/tese
+
+```bash
+python build_thesis_tables.py \
+  --base-results-dir results/baseline_methods \
+  --analysis-dir results/analysis/final_comparison \
+  --scale 2
+```
+
+Saídas:
+
+```text
+results/analysis/final_comparison/tables/
+├── ranking_global_composto.csv
+├── ranking_global_metodos.csv
+├── tamanho_imagens.csv
+├── tempos_processamento.csv
+├── psnr_vs_literatura_template.csv
+└── tabelas_relatorio.md
+```
+
+---
+
+## Atualizar o diagrama do pipeline
+
+```bash
+python create_pipeline_figure.py
+```
+
+Este comando recria os diagramas EN/PT com o *synthetic blur* antes do downsampling.
+
+---
+
+## Gerar diagrama do modelo de difusão
+
+```bash
+python create_diffusion_diagram.py
+```
+
+---
+
+## Treinar diffusion U-Net (from scratch)
+
+```bash
+python run_diffusion_training.py \
+  --train-glob "data/train_94t/*.nii*" \
+  --output-dir results/diffusion/training/diffusion_unet \
+  --image-size 256 \
+  --scale 2 \
+  --num-epochs 50
+```
+
+---
+
+## Avaliar checkpoint diffusion
+
+```bash
+python run_diffusion_inference.py \
+  --checkpoint results/diffusion/training/diffusion_unet/best_model.pt \
+  --input-path data/sub-0_ses-1_T1w.nii \
+  --output-dir results/diffusion/evaluation/diffusion_eval \
+  --slice-axis sagittal
 ```
 
 ---
@@ -665,7 +849,16 @@ pearson
 gradient_mse
 hfen
 diff_percent
+isnr
 issm
+hr_height
+hr_width
+lr_height
+lr_width
+degradation_time_ms
+upscaling_time_ms
+metrics_time_ms
+total_method_time_ms
 ```
 
 ---
@@ -683,6 +876,24 @@ Este ficheiro permite comparar os métodos numa mesma orientação.
 Junta os resultados agregados das três orientações anatómicas.
 
 Permite comparar método e orientação ao mesmo tempo.
+
+Localização:
+
+```text
+results/analysis/final_comparison/all_axes_aggregate.csv
+```
+
+---
+
+### `results/analysis/final_comparison/tables/*`
+
+Conjunto de tabelas para relatório:
+
+- ranking composto por orientação+método;
+- ranking global apenas por método (agregando eixos);
+- tabela de tamanhos HR/LR;
+- tabela de tempos médios de processamento;
+- template para comparação de PSNR com literatura.
 
 ---
 
@@ -766,12 +977,10 @@ Esta fase tem várias limitações:
 - a imagem LR é criada artificialmente;
 - é usado um número limitado de volumes;
 - os métodos testados são interpoladores clássicos;
-- ainda não existe modelo treinado de super-resolução;
+- a estrutura diffusion U-Net já está pronta, mas precisa de treino/validação extensivos com mais dados;
 - as métricas são calculadas em fatias 2D;
 - não existe validação clínica por especialista;
 - a normalização altera a escala original das intensidades MRI;
 - bons valores métricos não garantem relevância clínica.
 
 Estas limitações são esperadas, porque esta fase serve como baseline experimental.
-
-

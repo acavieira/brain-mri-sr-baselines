@@ -1,3 +1,5 @@
+"""Helpers to write visual reports and metrics CSV files."""
+
 import csv
 import os
 from typing import Dict, List
@@ -11,6 +13,7 @@ from .preprocessing import float01_to_uint8
 
 
 def save_image(path: str, img: np.ndarray) -> None:
+    """Save a normalized float image as an 8-bit PNG."""
     cv2.imwrite(path, float01_to_uint8(img))
 
 
@@ -26,14 +29,17 @@ def save_visual_report(
     output_dir: str,
     error_vmax: float,
 ) -> None:
+    """Create a 2x3 visual panel with reference, prediction, and error maps."""
     ensure_dir(output_dir)
 
+    # Resize LR only for display; metrics are computed on original arrays.
     h, w = hr_img.shape
     lr_display = cv2.resize(lr_img, (w, h), interpolation=cv2.INTER_NEAREST)
 
     abs_error = np.abs(hr_img - sr_img)
     signed_error = hr_img - sr_img
 
+    # Top row: reference/degraded/reconstruction.
     fig, axes = plt.subplots(2, 3, figsize=(15, 9), dpi=160)
 
     axes[0, 0].imshow(hr_img, cmap="gray", vmin=0, vmax=1)
@@ -48,6 +54,7 @@ def save_visual_report(
     axes[0, 2].set_title(f"Upscaled: {method}")
     axes[0, 2].axis("off")
 
+    # Bottom row: absolute error, signed error, and local SSIM map.
     im1 = axes[1, 0].imshow(abs_error, cmap="turbo", vmin=0, vmax=error_vmax)
     axes[1, 0].set_title("Absolute error")
     axes[1, 0].axis("off")
@@ -77,6 +84,7 @@ def save_visual_report(
 
 
 def save_metrics_csv(rows: List[Dict[str, object]], path: str) -> None:
+    """Write metric rows to a CSV file."""
     if not rows:
         return
 

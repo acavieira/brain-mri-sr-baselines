@@ -1,9 +1,13 @@
+"""Configuration object for one baseline experiment execution."""
+
 from dataclasses import dataclass
 from typing import Optional
 
 
 @dataclass
 class ExperimentConfig:
+    """All runtime settings required by `run_experiment`."""
+
     input_path: str
     output_dir: str
 
@@ -14,6 +18,7 @@ class ExperimentConfig:
     scale: int = 4
     blur_sigma: float = 0.55
     noise_sigma: float = 0.01
+    isnr_baseline_method: str = "bilinear"
 
     force_square_size: Optional[int] = None
     save_all_figures: bool = False
