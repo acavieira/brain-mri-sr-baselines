@@ -1,4 +1,5 @@
 import math
+import warnings
 from typing import Dict, Optional, Tuple
 
 import cv2
@@ -8,6 +9,8 @@ try:
     from image_similarity_measures.quality_metrics import issm as issm_metric
 except Exception:
     issm_metric = None
+
+_issm_disabled = False
 
 
 def mse(ref: np.ndarray, pred: np.ndarray) -> float:
@@ -96,14 +99,25 @@ def hfen(ref: np.ndarray, pred: np.ndarray) -> float:
 
 
 def issm_optional(ref: np.ndarray, pred: np.ndarray) -> Optional[float]:
-    if issm_metric is None:
+    global _issm_disabled
+
+    if issm_metric is None or _issm_disabled:
         return None
 
     try:
         ref_3d = ref.astype(np.float32)[..., np.newaxis]
         pred_3d = pred.astype(np.float32)[..., np.newaxis]
-        return float(issm_metric(org_img=ref_3d, pred_img=pred_3d))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            value = float(issm_metric(org_img=ref_3d, pred_img=pred_3d))
+
+        if not np.isfinite(value):
+            _issm_disabled = True
+            return None
+
+        return value
     except Exception:
+        _issm_disabled = True
         return None
 
 
@@ -125,4 +139,3 @@ def compute_metrics(ref: np.ndarray, pred: np.ndarray) -> Dict[str, object]:
         "issm": issm_optional(ref, pred),
         "ssim_map": ssim_map,
     }
-
