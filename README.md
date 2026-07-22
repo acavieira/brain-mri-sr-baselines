@@ -458,6 +458,9 @@ Maior tende a indicar maior similaridade.
 Ao contrário de métricas puramente baseadas em erro pixel-a-pixel, o ISSM combina informação estatística e informacional para avaliar similaridade de forma mais global.
 
 Neste projeto, o ISSM é opcional e é calculado através da biblioteca `image-similarity-measures`.
+Por razões de desempenho, o cálculo de ISSM está desativado por omissão.
+Para ativar, usa a flag `--compute-issm` nos scripts `run_experiment.py` e
+`run_all_experiments.py`.
 
 Instalação:
 
@@ -484,7 +487,9 @@ em:
 (height, width, 1)
 ```
 
-Se a biblioteca não estiver instalada ou se o cálculo falhar, o projeto continua a correr e o campo ISSM fica vazio no CSV.
+Se a biblioteca não estiver instalada, se o cálculo falhar, ou se a flag
+`--compute-issm` não for usada, o projeto continua a correr e o campo ISSM
+fica vazio no CSV.
 
 ---
 
@@ -617,12 +622,24 @@ data/sub-0_ses-1_T1w.nii
 python run_experiment.py
 ```
 
+Para incluir a métrica ISSM (mais lento):
+
+```bash
+python run_experiment.py --compute-issm
+```
+
 ---
 
 ## Como correr todas as orientações anatómicas
 
 ```bash
 python run_all_experiments.py
+```
+
+Para incluir a métrica ISSM (mais lento):
+
+```bash
+python run_all_experiments.py --compute-issm
 ```
 
 Este comando cria resultados separados para:
@@ -773,5 +790,3 @@ Esta fase tem várias limitações:
 - bons valores métricos não garantem relevância clínica.
 
 Estas limitações são esperadas, porque esta fase serve como baseline experimental.
-
-

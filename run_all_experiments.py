@@ -30,6 +30,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--noise-sigma", type=float, default=0.02)
     parser.add_argument("--force-square-size", type=int, default=None)
     parser.add_argument("--save-all-figures", action="store_true")
+    parser.add_argument(
+        "--compute-issm",
+        action="store_true",
+        help="Enable ISSM metric computation (slower)",
+    )
     return parser.parse_args()
 
 
@@ -182,6 +187,7 @@ def main() -> None:
             noise_sigma=args.noise_sigma,
             force_square_size=args.force_square_size,
             save_all_figures=args.save_all_figures,
+            compute_issm=args.compute_issm,
         )
 
         print("\n" + "=" * 80)

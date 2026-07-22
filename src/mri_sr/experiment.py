@@ -91,10 +91,16 @@ def run_experiment(config: ExperimentConfig) -> None:
             noise_sigma=config.noise_sigma,
             rng=rng,
         )
+        save_report = config.save_all_figures or slice_index == central_slice
 
         for method in INTERPOLATION_METHODS:
             sr_img = upscale_image(method, lr_img, hr_img.shape)
-            metrics = compute_metrics(hr_img, sr_img)
+            metrics = compute_metrics(
+                hr_img,
+                sr_img,
+                include_ssim_map=save_report,
+                compute_issm=config.compute_issm,
+            )
 
             row = {
                 "slice_axis": config.slice_axis,
@@ -122,7 +128,7 @@ def run_experiment(config: ExperimentConfig) -> None:
                 f"HFEN={metrics['hfen']:.4f}"
             )
 
-            if config.save_all_figures or slice_index == central_slice:
+            if save_report:
                 save_visual_report(
                     method=method,
                     axis=config.slice_axis,

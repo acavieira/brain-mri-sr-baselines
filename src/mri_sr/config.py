@@ -17,5 +17,6 @@ class ExperimentConfig:
 
     force_square_size: Optional[int] = None
     save_all_figures: bool = False
+    compute_issm: bool = False
     error_vmax: float = 0.35
     random_seed: int = 23

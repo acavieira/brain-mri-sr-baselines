@@ -47,12 +47,16 @@ def pearson(ref: np.ndarray, pred: np.ndarray) -> float:
     return float(np.corrcoef(x, y)[0, 1])
 
 
-def ssim_and_map(ref: np.ndarray, pred: np.ndarray) -> Tuple[float, np.ndarray]:
+def ssim_and_map(
+    ref: np.ndarray,
+    pred: np.ndarray,
+    include_map: bool = True,
+) -> Tuple[float, Optional[np.ndarray]]:
     x = ref.astype(np.float64)
     y = pred.astype(np.float64)
 
-    c1 = (0.01 ** 2)
-    c2 = (0.03 ** 2)
+    c1 = 0.01 ** 2
+    c2 = 0.03 ** 2
 
     mu_x = cv2.GaussianBlur(x, (11, 11), 1.5)
     mu_y = cv2.GaussianBlur(y, (11, 11), 1.5)
@@ -64,10 +68,12 @@ def ssim_and_map(ref: np.ndarray, pred: np.ndarray) -> Tuple[float, np.ndarray]:
     numerator = (2 * mu_x * mu_y + c1) * (2 * sigma_xy + c2)
     denominator = (mu_x ** 2 + mu_y ** 2 + c1) * (sigma_x2 + sigma_y2 + c2)
 
-    ssim_map = numerator / (denominator + 1e-12)
-    ssim_map = np.clip(ssim_map, -1.0, 1.0).astype(np.float32)
+    ssim_values = np.clip(numerator / (denominator + 1e-12), -1.0, 1.0)
+    ssim_value = float(np.mean(ssim_values))
 
-    return float(np.mean(ssim_map)), ssim_map
+    if include_map:
+        return ssim_value, ssim_values.astype(np.float32)
+    return ssim_value, None
 
 
 def gradient_mse(ref: np.ndarray, pred: np.ndarray) -> float:
@@ -107,8 +113,13 @@ def issm_optional(ref: np.ndarray, pred: np.ndarray) -> Optional[float]:
         return None
 
 
-def compute_metrics(ref: np.ndarray, pred: np.ndarray) -> Dict[str, object]:
-    ssim_value, ssim_map = ssim_and_map(ref, pred)
+def compute_metrics(
+    ref: np.ndarray,
+    pred: np.ndarray,
+    include_ssim_map: bool = True,
+    compute_issm: bool = True,
+) -> Dict[str, object]:
+    ssim_value, ssim_map = ssim_and_map(ref, pred, include_map=include_ssim_map)
     mae_value = mae(ref, pred)
 
     return {
@@ -122,7 +133,6 @@ def compute_metrics(ref: np.ndarray, pred: np.ndarray) -> Dict[str, object]:
         "gradient_mse": gradient_mse(ref, pred),
         "hfen": hfen(ref, pred),
         "diff_percent": mae_value * 100.0,
-        "issm": issm_optional(ref, pred),
+        "issm": issm_optional(ref, pred) if compute_issm else None,
         "ssim_map": ssim_map,
     }
-
