@@ -3,11 +3,14 @@ import os
 from typing import Dict, List
 
 import cv2
-import matplotlib.pyplot as plt
+import matplotlib
 import numpy as np
 
 from .io import ensure_dir
 from .preprocessing import float01_to_uint8
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 
 def save_image(path: str, img: np.ndarray) -> None:
@@ -34,7 +37,7 @@ def save_visual_report(
     abs_error = np.abs(hr_img - sr_img)
     signed_error = hr_img - sr_img
 
-    fig, axes = plt.subplots(2, 3, figsize=(15, 9), dpi=160)
+    fig, axes = plt.subplots(2, 3, figsize=(15, 9), dpi=120)
 
     axes[0, 0].imshow(hr_img, cmap="gray", vmin=0, vmax=1)
     axes[0, 0].set_title("HR reference")
