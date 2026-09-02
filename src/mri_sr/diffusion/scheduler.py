@@ -1,9 +1,6 @@
 """DDPM scheduler with forward noise and reverse sampling steps."""
 
-from dataclasses import dataclass
-
-import torch
-
+from .imports import *
 
 def _extract(values: torch.Tensor, timesteps: torch.Tensor, target_shape: torch.Size) -> torch.Tensor:
     """Gather timestep-specific coefficients and reshape for broadcasting."""

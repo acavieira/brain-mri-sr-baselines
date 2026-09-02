@@ -14,5 +14,5 @@ __all__ = [
     "DiffusionSuperResolver",
     "NiftiSlicePairDataset",
     "collect_nifti_paths",
-    "train_diffusion",
+    "train_diffusion"
 ]

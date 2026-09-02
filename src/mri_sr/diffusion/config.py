@@ -1,8 +1,6 @@
 """Configuration object for diffusion model training."""
 
-from dataclasses import dataclass
-from typing import Tuple
-
+from .imports import *
 
 @dataclass
 class DiffusionConfig:

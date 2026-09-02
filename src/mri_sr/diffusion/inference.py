@@ -1,14 +1,6 @@
 """Inference utilities for conditional diffusion super-resolution."""
 
-from typing import Optional, Tuple
-
-import cv2
-import numpy as np
-import torch
-
-from .model import ConditionalUNet2D
-from .scheduler import DiffusionScheduler
-
+from .imports import *
 
 def _resolve_device(device_arg: str) -> torch.device:
     """Resolve user device preference to an available torch device."""
