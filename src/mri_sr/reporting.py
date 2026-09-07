@@ -12,20 +12,25 @@ import numpy as np
 import cv2
 from skimage.metrics import structural_similarity
 
-from .config import METHODS
+from .config import METHODS, ORIENTATIONS
+from .metrics import mse, psnr
 
-METRIC_NAMES = ("psnr", "mse", "mae", "rmse", "ssim", "isnr")
+METRIC_NAMES = ("psnr_full", "psnr_brain", "mse", "mae", "rmse", "ssim", "isnr")
 BY_SLICE_COLUMNS = (
     "volume",
     "orientation",
     "slice_index",
     "method",
-    "psnr",
+    "psnr_full",
+    "psnr_brain",
     "mse",
     "mae",
     "rmse",
     "ssim",
     "isnr",
+    "degradation_time_ms",
+    "interpolation_time_ms",
+    "metrics_time_ms",
     "processing_time_ms",
     "hr_height",
     "hr_width",
@@ -86,15 +91,16 @@ def aggregate_metrics(rows: List[Mapping[str, object]], group_keys: tuple[str, .
 
 def aggregate_runtime(rows: List[Mapping[str, object]]) -> List[Dict[str, object]]:
     """Aggregate processing time by orientation and method."""
-    grouped: Dict[tuple[object, object], List[float]] = defaultdict(list)
+    grouped: Dict[tuple[object, object], List[Mapping[str, object]]] = defaultdict(list)
     for row in rows:
-        value = float(row["processing_time_ms"])
-        if math.isfinite(value):
-            grouped[(row["orientation"], row["method"])].append(value)
+        grouped[(row["orientation"], row["method"])].append(row)
     output = []
-    for (orientation, method), values in grouped.items():
-        stats = _summary(values)
-        output.append({"orientation": orientation, "method": method, "num_slices": len(values), **{f"processing_time_ms_{key}": value for key, value in stats.items()}})
+    for (orientation, method), group in grouped.items():
+        row = {"orientation": orientation, "method": method, "num_slices": len(group)}
+        for time_name in ("degradation_time_ms", "interpolation_time_ms", "metrics_time_ms", "processing_time_ms"):
+            stats = _summary(_finite_values(group, time_name))
+            row.update({f"{time_name}_{key}": value for key, value in stats.items()})
+        output.append(row)
     return output
 
 
@@ -102,7 +108,7 @@ def rank_methods(summary_rows: List[Mapping[str, object]]) -> List[Dict[str, obj
     """Rank methods by mean PSNR, then mean SSIM."""
     ranked = sorted(
         (dict(row) for row in summary_rows),
-        key=lambda row: (-float(row["psnr_mean"]), -float(row["ssim_mean"]), METHODS.index(str(row["method"]))),
+        key=lambda row: (-float(row["psnr_full_mean"]), -float(row["ssim_mean"]), METHODS.index(str(row["method"]))),
     )
     for rank, row in enumerate(ranked, start=1):
         row["rank"] = rank
@@ -173,31 +179,51 @@ def save_example(
 
 def _mse_for_report(reference: np.ndarray, reconstruction: np.ndarray) -> float:
     """Compute MSE for the visual report title."""
-    return float(np.mean((reference.astype(np.float32) - reconstruction.astype(np.float32)) ** 2))
+    return mse(reference, reconstruction)
 
 
 def _psnr_for_report(reference: np.ndarray, reconstruction: np.ndarray) -> float:
     """Compute standard PSNR for the visual report title."""
-    error = _mse_for_report(reference, reconstruction)
-    return float("inf") if error == 0.0 else float(10.0 * np.log10(1.0 / error))
+    return psnr(reference, reconstruction)
 
 
-def save_error_summary(
-    path: Path,
-    hr_image: np.ndarray,
-    reconstructions: Mapping[str, np.ndarray],
-    error_vmax: float,
-) -> None:
-    """Save an optional compact comparison of absolute errors."""
-    figure, axes = plt.subplots(1, len(METHODS), figsize=(12, 3), dpi=180)
-    for axis, method in zip(axes, METHODS):
-        error = np.abs(hr_image - reconstructions[method])
-        axis.imshow(error, cmap="magma", vmin=0, vmax=error_vmax)
-        axis.set_title(method)
-        axis.axis("off")
-    figure.suptitle("Absolute error")
+def _save_psnr_by_method(summary_rows: List[Mapping[str, object]], figures_dir: Path) -> None:
+    ordered = sorted(summary_rows, key=lambda row: METHODS.index(str(row["method"])))
+    figure, axis = plt.subplots(figsize=(7, 4), dpi=180)
+    axis.bar([row["method"] for row in ordered], [float(row["psnr_full_mean"]) for row in ordered], color="#356859")
+    axis.set_title("Mean PSNR by method")
+    axis.set_xlabel("Method")
+    axis.set_ylabel("PSNR (dB)")
     figure.tight_layout()
-    figure.savefig(path)
+    figure.savefig(figures_dir / "psnr_by_method.png")
+    plt.close(figure)
+
+
+def _save_psnr_by_axis(axis_rows: List[Mapping[str, object]], figures_dir: Path) -> None:
+    figure, axis = plt.subplots(figsize=(8, 4), dpi=180)
+    positions = np.arange(len(ORIENTATIONS))
+    width = 0.18
+    for method_index, method in enumerate(METHODS):
+        values = [float(next(row for row in axis_rows if row["orientation"] == orientation and row["method"] == method)["psnr_full_mean"]) for orientation in ORIENTATIONS]
+        axis.bar(positions + (method_index - 1.5) * width, values, width, label=method)
+    axis.set_xticks(positions, ORIENTATIONS)
+    axis.set_title("Mean PSNR by orientation")
+    axis.set_xlabel("Orientation")
+    axis.set_ylabel("PSNR (dB)")
+    axis.legend(ncol=2)
+    figure.tight_layout()
+    figure.savefig(figures_dir / "psnr_by_axis.png")
+    plt.close(figure)
+
+
+def _save_psnr_distribution(rows: List[Mapping[str, object]], figures_dir: Path) -> None:
+    figure, axis = plt.subplots(figsize=(8, 4), dpi=180)
+    axis.boxplot([[float(row["psnr_full"]) for row in rows if row["method"] == method] for method in METHODS], tick_labels=METHODS)
+    axis.set_title("PSNR distribution")
+    axis.set_xlabel("Method")
+    axis.set_ylabel("PSNR (dB)")
+    figure.tight_layout()
+    figure.savefig(figures_dir / "psnr_distribution_by_method.png")
     plt.close(figure)
 
 
@@ -205,7 +231,6 @@ def generate_reports(rows: List[Mapping[str, object]], output_dir: Path, paramet
     """Write tables and figures for a completed run."""
     tables_dir = output_dir / "tables"
     figures_dir = output_dir / "figures"
-    examples_dir = figures_dir / "examples"
     tables_dir.mkdir(parents=True, exist_ok=True)
     figures_dir.mkdir(parents=True, exist_ok=True)
     by_axis = aggregate_metrics(rows, ("orientation", "method"))
@@ -220,7 +245,10 @@ def generate_reports(rows: List[Mapping[str, object]], output_dir: Path, paramet
     write_csv(ranking, tables_dir / "ranking.csv")
     (output_dir / "run_parameters.json").write_text(json.dumps(parameters, indent=2, sort_keys=True), encoding="utf-8")
 
-    summary_text = ["MRI classical baseline experiment", "", f"Slices evaluated: {len({(row['volume'], row['orientation'], row['slice_index']) for row in rows})}", "", "Ranking by mean PSNR (tie-break: mean SSIM):"]
-    summary_text.extend(f"{row['rank']}. {row['method']}: PSNR={row['psnr_mean']:.6f} dB, SSIM={row['ssim_mean']:.6f}" for row in ranking)
+    _save_psnr_by_method(summary, figures_dir)
+    _save_psnr_by_axis(by_axis, figures_dir)
+    _save_psnr_distribution(rows, figures_dir)
+    summary_text = ["MRI classical baseline experiment", "", f"Slices evaluated: {len({(row['volume'], row['orientation'], row['slice_index']) for row in rows})}", "", "Ranking by mean full-image PSNR (tie-break: mean SSIM):"]
+    summary_text.extend(f"{row['rank']}. {row['method']}: PSNR={row['psnr_full_mean']:.6f} dB, SSIM={row['ssim_mean']:.6f}" for row in ranking)
     (output_dir / "execution_summary.txt").write_text("\n".join(summary_text) + "\n", encoding="utf-8")
     return ranking

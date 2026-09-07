@@ -28,11 +28,6 @@ def normalize_volume_to_float01(
     return normalized.astype(np.float32)
 
 
-def float01_to_uint8(img: np.ndarray) -> np.ndarray:
-    """Convert [0, 1] float image to uint8 for PNG export."""
-    return (np.clip(img, 0.0, 1.0) * 255.0).round().astype(np.uint8)
-
-
 def resize_with_padding(image: np.ndarray, target_size: int) -> np.ndarray:
     """Resize a slice without distortion and pad it to a square."""
     if image.ndim != 2:
@@ -55,3 +50,13 @@ def resize_with_padding(image: np.ndarray, target_size: int) -> np.ndarray:
 def prepare_hr_reference(normalized_slice: np.ndarray, target_size: int) -> np.ndarray:
     """Prepare one already volume-normalized slice as the HR reference."""
     return np.clip(resize_with_padding(normalized_slice, target_size), 0.0, 1.0)
+
+
+def create_brain_mask(reference: np.ndarray, threshold: float) -> np.ndarray:
+    """Create a simple foreground mask that excludes padded background."""
+    if reference.ndim != 2:
+        raise ValueError("The reference image must be two-dimensional")
+    mask = np.isfinite(reference) & (reference > threshold)
+    if not np.any(mask):
+        raise ValueError("The brain mask is empty; lower the mask threshold")
+    return mask

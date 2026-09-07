@@ -10,7 +10,7 @@ from src.mri_sr.degradation import degrade_image
 from src.mri_sr.interpolation import upscale_all_methods
 from src.mri_sr.metrics import compute_metrics, isnr, psnr
 from src.mri_sr.nifti_io import extract_anatomical_slice, select_slice_indices
-from src.mri_sr.preprocessing import normalize_volume_to_float01, prepare_hr_reference, resize_with_padding
+from src.mri_sr.preprocessing import create_brain_mask, normalize_volume_to_float01, prepare_hr_reference, resize_with_padding
 from src.mri_sr.reporting import generate_reports
 
 
@@ -73,6 +73,17 @@ def test_isnr_uses_fixed_baseline_error():
     assert np.isinf(isnr(reference, reference, baseline))
 
 
+def test_psnr_brain_excludes_padded_background():
+    reference = np.zeros((16, 16), dtype=np.float32)
+    reference[4:12, 4:12] = 1.0
+    prediction = reference.copy()
+    prediction[0, 0] = 1.0
+    mask = create_brain_mask(reference, threshold=0.05)
+    metrics = compute_metrics(reference, prediction, brain_mask=mask)
+    assert metrics["psnr_brain"] == float("inf")
+    assert np.isfinite(metrics["psnr_full"])
+
+
 def test_report_tables_are_created(tmp_path):
     rows = []
     for orientation in ORIENTATIONS:
@@ -83,12 +94,16 @@ def test_report_tables_are_created(tmp_path):
                     "orientation": orientation,
                     "slice_index": 10,
                     "method": method,
-                    "psnr": 20.0 + METHODS.index(method),
+                    "psnr_full": 20.0 + METHODS.index(method),
+                    "psnr_brain": 21.0 + METHODS.index(method),
                     "mse": 0.01,
                     "mae": 0.05,
                     "rmse": 0.1,
                     "ssim": 0.8,
-                        "isnr": 0.0,
+                    "isnr": 0.0,
+                    "degradation_time_ms": 0.2,
+                    "interpolation_time_ms": 0.3,
+                    "metrics_time_ms": 0.4,
                     "processing_time_ms": 1.0,
                     "hr_height": 256,
                     "hr_width": 256,
@@ -109,3 +124,6 @@ def test_report_tables_are_created(tmp_path):
     with (tmp_path / "tables" / "metrics_by_slice.csv").open(newline="", encoding="utf-8") as handle:
         assert "volume" in next(csv.reader(handle))
     assert (tmp_path / "execution_summary.txt").exists()
+    assert (tmp_path / "figures" / "psnr_by_method.png").exists()
+    assert (tmp_path / "figures" / "psnr_by_axis.png").exists()
+    assert (tmp_path / "figures" / "psnr_distribution_by_method.png").exists()

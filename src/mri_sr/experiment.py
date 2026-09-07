@@ -6,16 +6,13 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from .config import ExperimentConfig, ISNR_BASELINE_METHOD, ORIENTATIONS
+from .config import ExperimentConfig, METHODS, ORIENTATIONS
 from .degradation import degrade_image
-from .interpolation import upscale_all_methods
+from .interpolation import upscale_image
 from .metrics import compute_metrics
-from .nifti_io import extract_anatomical_slice, load_canonical_volume, select_slice_indices
-from .preprocessing import normalize_volume_to_float01, prepare_hr_reference
+from .nifti_io import ORIENTATION_AXES, extract_anatomical_slice, find_nifti_files, load_canonical_volume, select_slice_indices
+from .preprocessing import create_brain_mask, normalize_volume_to_float01, prepare_hr_reference
 from .reporting import generate_reports, save_example
-
-
-_AXIS_BY_ORIENTATION = {"sagittal": 0, "coronal": 1, "axial": 2}
 
 
 def timestamped_output_dir(output_root: str) -> Path:
@@ -33,9 +30,9 @@ def timestamped_output_dir(output_root: str) -> Path:
 def run_experiment(config: ExperimentConfig, output_dir: Optional[Path] = None) -> Tuple[Path, List[Dict[str, object]]]:
     """Run HR -> degradation -> LR -> interpolation -> metrics for all inputs."""
     rng = np.random.default_rng(config.random_seed)
-    input_paths = sorted(Path(config.input_dir).glob("*.nii")) + sorted(Path(config.input_dir).glob("*.nii.gz"))
-    if not input_paths:
-        raise FileNotFoundError(f"No NIfTI files found in {config.input_dir}")
+    input_paths = find_nifti_files(config.input_dir)
+    if config.isnr_baseline_method not in METHODS:
+        raise ValueError(f"Unknown ISNR baseline method: {config.isnr_baseline_method}")
     if output_dir is None:
         output_dir = timestamped_output_dir(config.output_root)
 
@@ -51,13 +48,14 @@ def run_experiment(config: ExperimentConfig, output_dir: Optional[Path] = None) 
         print(f"  canonical shape={volume.shape}; orientations={', '.join(ORIENTATIONS)}")
 
         for orientation in ORIENTATIONS:
-            axis = _AXIS_BY_ORIENTATION[orientation]
+            axis = ORIENTATION_AXES[orientation]
             indices = select_slice_indices(volume.shape[axis], config.slices_per_volume)
             print(f"  {orientation}: {len(indices)} slices ({indices[0]}..{indices[-1]})")
 
             for slice_position, slice_index in enumerate(indices):
                 normalized_slice = extract_anatomical_slice(normalized_volume, orientation, slice_index)
                 hr_image = prepare_hr_reference(normalized_slice, config.target_size)
+                brain_mask = create_brain_mask(hr_image, config.brain_mask_threshold)
                 degradation_start = time.perf_counter()
                 lr_image = degrade_image(
                     hr_image,
@@ -68,15 +66,23 @@ def run_experiment(config: ExperimentConfig, output_dir: Optional[Path] = None) 
                 )
                 degradation_time_ms = (time.perf_counter() - degradation_start) * 1000.0
 
-                reconstructions = upscale_all_methods(lr_image, hr_image.shape)
-                for method, reconstruction in reconstructions.items():
-                    method_start = time.perf_counter()
+                reconstructions = {}
+                interpolation_times = {}
+                for method in METHODS:
+                    interpolation_start = time.perf_counter()
+                    reconstructions[method] = upscale_image(lr_image, method, hr_image.shape)
+                    interpolation_times[method] = (time.perf_counter() - interpolation_start) * 1000.0
+
+                for method in METHODS:
+                    reconstruction = reconstructions[method]
+                    metrics_start = time.perf_counter()
                     metrics = compute_metrics(
                         hr_image,
                         reconstruction,
-                        baseline=reconstructions[ISNR_BASELINE_METHOD],
+                        baseline=reconstructions[config.isnr_baseline_method],
+                        brain_mask=brain_mask,
                     )
-                    processing_time_ms = (time.perf_counter() - method_start) * 1000.0
+                    metrics_time_ms = (time.perf_counter() - metrics_start) * 1000.0
                     rows.append(
                         {
                             "volume": input_path.name,
@@ -84,7 +90,10 @@ def run_experiment(config: ExperimentConfig, output_dir: Optional[Path] = None) 
                             "slice_index": slice_index,
                             "method": method,
                             **metrics,
-                            "processing_time_ms": processing_time_ms + degradation_time_ms,
+                            "degradation_time_ms": degradation_time_ms,
+                            "interpolation_time_ms": interpolation_times[method],
+                            "metrics_time_ms": metrics_time_ms,
+                            "processing_time_ms": interpolation_times[method],
                             "hr_height": hr_image.shape[0],
                             "hr_width": hr_image.shape[1],
                             "lr_height": lr_image.shape[0],
@@ -107,5 +116,5 @@ def run_experiment(config: ExperimentConfig, output_dir: Optional[Path] = None) 
     ranking = generate_reports(rows, output_dir, {**config.to_dict(), "input_files": [path.name for path in input_paths]})
     print("\nRanking by mean PSNR:")
     for row in ranking:
-        print(f"  {row['rank']}. {row['method']}: {row['psnr_mean']:.4f} dB")
+        print(f"  {row['rank']}. {row['method']}: {row['psnr_full_mean']:.4f} dB")
     return output_dir, rows

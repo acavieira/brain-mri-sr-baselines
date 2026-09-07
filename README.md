@@ -42,7 +42,7 @@ src/mri_sr/
   preprocessing.py   volume normalization and padded resize
   degradation.py     blur, downsampling, and noise
   interpolation.py  classical interpolation methods
-  metrics.py         PSNR, MSE, MAE, RMSE, and SSIM
+  metrics.py         PSNR, MSE, MAE, RMSE, SSIM, and ISNR
   experiment.py      main experiment loop
   reporting.py       CSV files and visual reports
 scripts/
@@ -59,7 +59,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Input data must be 3D `.nii` or `.nii.gz` files. Put them in `data/`, or provide another directory with `--input-dir`.
+Input data must be 3D `.nii` or `.nii.gz` files. Put them in `data/`, or provide another directory with `--input-dir`. The MRI volume is local experiment data and is not included in Git. Obtain the study volume from the approved dataset source, then copy the `.nii` or `.nii.gz` file into `data/`.
 
 ## Run
 
@@ -87,6 +87,11 @@ PSNR = 10 * log10(1 / MSE)
 ```
 
 PSNR is calculated for every slice with `data_range=1.0`. If the MSE is zero, PSNR is `inf`.
+
+Two PSNR values are stored:
+
+- `psnr_full`: standard PSNR over the complete `256 x 256` image;
+- `psnr_brain`: PSNR over a foreground mask (`HR > 0.05`) that excludes the padded black background.
 
 The MSE is calculated separately for every method:
 
@@ -118,12 +123,15 @@ results/run_.../
     runtime_summary.csv
     ranking.csv
   figures/
+    psnr_by_method.png
+    psnr_by_axis.png
+    psnr_distribution_by_method.png
     examples/
   run_parameters.json
   execution_summary.txt
 ```
 
-`metrics_by_slice.csv` contains the volume, orientation, slice index, method, metrics, processing time, and image dimensions. The ranking is sorted by mean PSNR; mean SSIM is used only to break a tie.
+`metrics_by_slice.csv` contains the volume, orientation, slice index, method, full-image and brain-mask metrics, separate degradation/interpolation/metric times, and image dimensions. The ranking is sorted by mean `psnr_full`; mean SSIM is used only to break a tie. `processing_time_ms` is the interpolation time for the method. Degradation and metric calculation times are stored separately.
 
 A higher PSNR means that the reconstruction is closer to the HR reference for the selected degradation settings.
 

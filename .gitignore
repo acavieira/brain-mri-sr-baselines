@@ -6,6 +6,10 @@ __pycache__/
 .venv/
 .DS_Store
 
+# MRI volumes are local experiment data and are not committed
+data/*.nii
+data/*.nii.gz
+
 # Timestamped experiment outputs are reproducible artifacts
 results/run_*/
 

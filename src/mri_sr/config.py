@@ -15,6 +15,7 @@ NOISE_SIGMA = 0.02
 RANDOM_SEED = 23
 LOW_PERCENTILE = 1.0
 HIGH_PERCENTILE = 99.0
+BRAIN_MASK_THRESHOLD = 0.05
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,7 @@ class ExperimentConfig:
     random_seed: int = RANDOM_SEED
     low_percentile: float = LOW_PERCENTILE
     high_percentile: float = HIGH_PERCENTILE
+    brain_mask_threshold: float = BRAIN_MASK_THRESHOLD
     isnr_baseline_method: str = ISNR_BASELINE_METHOD
     save_all_examples: bool = False
 
