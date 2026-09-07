@@ -1,2 +1,0 @@
-epoch,loss_mse_noise,epoch_seconds,samples,device
-1,0.53122056,16.613,9,mps

@@ -1,239 +1,111 @@
-"""Main baseline experiment loop and aggregate metric helpers."""
+"""Explicit execution flow for the MRI SR comparison."""
 
-import os
 import time
-from typing import Dict, List
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from .config import ExperimentConfig
+from .config import ExperimentConfig, ISNR_BASELINE_METHOD, ORIENTATIONS
 from .degradation import degrade_image
-from .io import choose_slice_indices, ensure_dir, extract_slice, load_nifti_volume
+from .interpolation import upscale_all_methods
 from .metrics import compute_metrics
-from .preprocessing import prepare_hr_reference
-from .reports import save_metrics_csv, save_visual_report
-from .upscaling import INTERPOLATION_METHODS, upscale_image
+from .nifti_io import extract_anatomical_slice, load_canonical_volume, select_slice_indices
+from .preprocessing import normalize_volume_to_float01, prepare_hr_reference
+from .reporting import generate_reports, save_example
 
 
-def _collect_numeric_values(rows: List[Dict[str, object]], metric: str) -> np.ndarray:
-    """Collect finite numeric values for one metric key."""
-    values = []
-
-    for row in rows:
-        value = row.get(metric)
-        if value in ("", None):
-            continue
-
-        try:
-            numeric_value = float(value)
-        except Exception:
-            continue
-
-        if np.isfinite(numeric_value):
-            values.append(numeric_value)
-
-    return np.array(values, dtype=np.float32)
+_AXIS_BY_ORIENTATION = {"sagittal": 0, "coronal": 1, "axial": 2}
 
 
-def aggregate_metrics(rows: List[Dict[str, object]]) -> List[Dict[str, object]]:
-    """Aggregate per-slice rows into per-method mean/std summary rows."""
-    methods = sorted(set(row["method"] for row in rows))
-    metric_names = [
-        "ssim",
-        "psnr",
-        "mse",
-        "mae",
-        "rmse",
-        "nrmse",
-        "pearson",
-        "gradient_mse",
-        "hfen",
-        "diff_percent",
-        "isnr",
-        "issm",
-        "degradation_time_ms",
-        "upscaling_time_ms",
-        "metrics_time_ms",
-        "total_method_time_ms",
-    ]
-
-    aggregate_rows = []
-
-    for method in methods:
-        method_rows = [row for row in rows if row["method"] == method]
-        aggregate = {
-            "method": method,
-            "num_slices": len(method_rows),
-        }
-
-        # Compute mean and std for each available metric.
-        for metric in metric_names:
-            values = _collect_numeric_values(method_rows, metric)
-            if values.size == 0:
-                aggregate[f"{metric}_mean"] = ""
-                aggregate[f"{metric}_std"] = ""
-                continue
-
-            aggregate[f"{metric}_mean"] = float(values.mean())
-            aggregate[f"{metric}_std"] = float(values.std())
-
-        aggregate_rows.append(aggregate)
-
-    # Primary ranking order used throughout the baseline pipeline.
-    aggregate_rows.sort(
-        key=lambda row: (
-            -row["ssim_mean"],
-            -row["psnr_mean"],
-            row["mse_mean"],
-        )
-    )
-
-    return aggregate_rows
+def timestamped_output_dir(output_root: str) -> Path:
+    """Create a new output directory without reusing previous results."""
+    timestamp = time.strftime("run_%Y%m%d_%H%M%S")
+    output_dir = Path(output_root) / timestamp
+    suffix = 1
+    while output_dir.exists():
+        output_dir = Path(output_root) / f"{timestamp}_{suffix}"
+        suffix += 1
+    output_dir.mkdir(parents=True)
+    return output_dir
 
 
-def run_experiment(config: ExperimentConfig) -> None:
-    """Run the full baseline workflow for one anatomical axis."""
+def run_experiment(config: ExperimentConfig, output_dir: Optional[Path] = None) -> Tuple[Path, List[Dict[str, object]]]:
+    """Run HR -> degradation -> LR -> interpolation -> metrics for all inputs."""
     rng = np.random.default_rng(config.random_seed)
-
-    ensure_dir(config.output_dir)
-    figures_dir = os.path.join(config.output_dir, "figures")
-    ensure_dir(figures_dir)
-
-    volume = load_nifti_volume(config.input_path)
-    slice_indices = choose_slice_indices(
-        volume,
-        axis=config.slice_axis,
-        center_index=config.slice_index,
-        num_slices=config.num_slices,
-    )
-
-    central_slice = slice_indices[len(slice_indices) // 2]
-
-    print(f"Input volume: {config.input_path}")
-    print(f"Volume shape: {volume.shape}")
-    print(f"Axis: {config.slice_axis}")
-    print(f"Slices: {slice_indices}")
-    print(f"Scale: x{config.scale}")
-    print(f"ISNR baseline: {config.isnr_baseline_method}")
-
-    if config.isnr_baseline_method not in INTERPOLATION_METHODS:
-        raise ValueError(
-            f"Invalid ISNR baseline method: {config.isnr_baseline_method}. "
-            f"Expected one of {INTERPOLATION_METHODS}"
-        )
+    input_paths = sorted(Path(config.input_dir).glob("*.nii")) + sorted(Path(config.input_dir).glob("*.nii.gz"))
+    if not input_paths:
+        raise FileNotFoundError(f"No NIfTI files found in {config.input_dir}")
+    if output_dir is None:
+        output_dir = timestamped_output_dir(config.output_root)
 
     rows: List[Dict[str, object]] = []
-
-    for slice_index in slice_indices:
-        print(f"\nProcessing slice {slice_index}...")
-
-        raw_slice = extract_slice(volume, config.slice_axis, slice_index)
-        hr_img = prepare_hr_reference(raw_slice, config.force_square_size)
-
-        degradation_start = time.perf_counter()
-        lr_img = degrade_image(
-            hr_img,
-            scale=config.scale,
-            blur_sigma=config.blur_sigma,
-            noise_sigma=config.noise_sigma,
-            rng=rng,
+    for input_path in input_paths:
+        print(f"Loading canonical volume: {input_path.name}")
+        volume = load_canonical_volume(input_path)
+        normalized_volume = normalize_volume_to_float01(
+            volume,
+            low_percentile=config.low_percentile,
+            high_percentile=config.high_percentile,
         )
-        degradation_time_ms = (time.perf_counter() - degradation_start) * 1000.0
+        print(f"  canonical shape={volume.shape}; orientations={', '.join(ORIENTATIONS)}")
 
-        baseline_sr = upscale_image(config.isnr_baseline_method, lr_img, hr_img.shape)
-        hr_height, hr_width = hr_img.shape
-        lr_height, lr_width = lr_img.shape
+        for orientation in ORIENTATIONS:
+            axis = _AXIS_BY_ORIENTATION[orientation]
+            indices = select_slice_indices(volume.shape[axis], config.slices_per_volume)
+            print(f"  {orientation}: {len(indices)} slices ({indices[0]}..{indices[-1]})")
 
-        # Evaluate every classical interpolation method on the same LR input.
-        for method in INTERPOLATION_METHODS:
-            method_start = time.perf_counter()
-
-            upscale_start = time.perf_counter()
-            sr_img = upscale_image(method, lr_img, hr_img.shape)
-            upscaling_time_ms = (time.perf_counter() - upscale_start) * 1000.0
-
-            metrics_start = time.perf_counter()
-            metrics = compute_metrics(hr_img, sr_img, baseline_pred=baseline_sr)
-            metrics_time_ms = (time.perf_counter() - metrics_start) * 1000.0
-            total_method_time_ms = (time.perf_counter() - method_start) * 1000.0
-
-            # Keep one row per method and per slice for later aggregation.
-            row = {
-                "slice_axis": config.slice_axis,
-                "slice_index": slice_index,
-                "method": method,
-                "ssim": metrics["ssim"],
-                "psnr": metrics["psnr"],
-                "mse": metrics["mse"],
-                "mae": metrics["mae"],
-                "rmse": metrics["rmse"],
-                "nrmse": metrics["nrmse"],
-                "pearson": metrics["pearson"],
-                "gradient_mse": metrics["gradient_mse"],
-                "hfen": metrics["hfen"],
-                "diff_percent": metrics["diff_percent"],
-                "isnr": "" if metrics["isnr"] is None else metrics["isnr"],
-                "issm": "" if metrics["issm"] is None else metrics["issm"],
-                "scale": config.scale,
-                "isnr_baseline_method": config.isnr_baseline_method,
-                "hr_height": hr_height,
-                "hr_width": hr_width,
-                "lr_height": lr_height,
-                "lr_width": lr_width,
-                "degradation_time_ms": degradation_time_ms,
-                "upscaling_time_ms": upscaling_time_ms,
-                "metrics_time_ms": metrics_time_ms,
-                "total_method_time_ms": total_method_time_ms,
-            }
-            rows.append(row)
-
-            isnr_text = "n/a" if metrics["isnr"] is None else f"{metrics['isnr']:.3f}"
-            print(
-                f"  {method:8s} | "
-                f"SSIM={metrics['ssim']:.4f} | "
-                f"PSNR={metrics['psnr']:.2f} | "
-                f"MSE={metrics['mse']:.6f} | "
-                f"HFEN={metrics['hfen']:.4f} | "
-                f"ISNR={isnr_text} | "
-                f"time={total_method_time_ms:.1f} ms"
-            )
-
-            # Save only the central slice by default to keep outputs compact.
-            if config.save_all_figures or slice_index == central_slice:
-                save_visual_report(
-                    method=method,
-                    axis=config.slice_axis,
-                    slice_index=slice_index,
-                    hr_img=hr_img,
-                    lr_img=lr_img,
-                    sr_img=sr_img,
-                    ssim_map=metrics["ssim_map"],
-                    metrics=metrics,
-                    output_dir=figures_dir,
-                    error_vmax=config.error_vmax,
+            for slice_position, slice_index in enumerate(indices):
+                normalized_slice = extract_anatomical_slice(normalized_volume, orientation, slice_index)
+                hr_image = prepare_hr_reference(normalized_slice, config.target_size)
+                degradation_start = time.perf_counter()
+                lr_image = degrade_image(
+                    hr_image,
+                    scale=config.scale,
+                    blur_sigma=config.blur_sigma,
+                    noise_sigma=config.noise_sigma,
+                    rng=rng,
                 )
+                degradation_time_ms = (time.perf_counter() - degradation_start) * 1000.0
 
-    metrics_path = os.path.join(config.output_dir, "metrics_by_slice.csv")
-    aggregate_path = os.path.join(config.output_dir, "metrics_aggregate.csv")
+                reconstructions = upscale_all_methods(lr_image, hr_image.shape)
+                for method, reconstruction in reconstructions.items():
+                    method_start = time.perf_counter()
+                    metrics = compute_metrics(
+                        hr_image,
+                        reconstruction,
+                        baseline=reconstructions[ISNR_BASELINE_METHOD],
+                    )
+                    processing_time_ms = (time.perf_counter() - method_start) * 1000.0
+                    rows.append(
+                        {
+                            "volume": input_path.name,
+                            "orientation": orientation,
+                            "slice_index": slice_index,
+                            "method": method,
+                            **metrics,
+                            "processing_time_ms": processing_time_ms + degradation_time_ms,
+                            "hr_height": hr_image.shape[0],
+                            "hr_width": hr_image.shape[1],
+                            "lr_height": lr_image.shape[0],
+                            "lr_width": lr_image.shape[1],
+                        }
+                    )
 
-    # Export per-slice and aggregate CSVs.
-    save_metrics_csv(rows, metrics_path)
-    aggregate_rows = aggregate_metrics(rows)
-    save_metrics_csv(aggregate_rows, aggregate_path)
+                should_save_example = config.save_all_examples or slice_position == len(indices) // 2
+                if should_save_example:
+                    example_name = f"report_{orientation}_{slice_index:04d}_example.png"
+                    save_example(
+                        path=output_dir / "figures" / "examples" / example_name,
+                        hr_image=hr_image,
+                        lr_image=lr_image,
+                        reconstructions=reconstructions,
+                        title=f"{input_path.name} | {orientation} | slice {slice_index}",
+                        error_vmax=0.35,
+                    )
 
-    print("\nDone.")
-    print(f"Metrics by slice: {metrics_path}")
-    print(f"Aggregate metrics: {aggregate_path}")
-
-    print("\nRanking:")
-    for row in aggregate_rows:
-        isnr_mean = row.get("isnr_mean")
-        isnr_text = "n/a" if isnr_mean in ("", None) else f"{float(isnr_mean):.3f}"
-
-        print(
-            f"- {row['method']:8s} | "
-            f"SSIM={row['ssim_mean']:.4f} ± {row['ssim_std']:.4f} | "
-            f"PSNR={row['psnr_mean']:.2f} ± {row['psnr_std']:.2f} | "
-            f"MSE={row['mse_mean']:.6f} ± {row['mse_std']:.6f} | "
-            f"ISNR={isnr_text}"
-        )
+    ranking = generate_reports(rows, output_dir, {**config.to_dict(), "input_files": [path.name for path in input_paths]})
+    print("\nRanking by mean PSNR:")
+    for row in ranking:
+        print(f"  {row['rank']}. {row['method']}: {row['psnr_mean']:.4f} dB")
+    return output_dir, rows

@@ -1,27 +1,31 @@
-"""Preprocessing helpers for robust MRI slice normalization."""
+"""Volume normalization and aspect-preserving HR preparation."""
+
+from typing import Tuple
 
 import cv2
 import numpy as np
-from typing import Optional
 
 
-def robust_normalize_to_float01(
-    img: np.ndarray,
+def normalize_volume_to_float01(
+    volume: np.ndarray,
     low_percentile: float = 1,
     high_percentile: float = 99,
 ) -> np.ndarray:
-    """Clip to robust percentiles and normalize image values to [0, 1]."""
-    img = img.astype(np.float32)
+    """Normalize one complete volume using finite voxels only."""
+    values = np.asarray(volume, dtype=np.float32)
+    finite_values = values[np.isfinite(values)]
+    if finite_values.size == 0:
+        raise ValueError("The volume contains no finite intensity values")
 
-    lo = float(np.percentile(img, low_percentile))
-    hi = float(np.percentile(img, high_percentile))
-
-    if hi <= lo:
-        hi = lo + 1e-6
-
-    img = (img - lo) / (hi - lo)
-    img = np.clip(img, 0.0, 1.0)
-    return img.astype(np.float32)
+    low = float(np.percentile(finite_values, low_percentile))
+    high = float(np.percentile(finite_values, high_percentile))
+    if high <= low:
+        normalized = np.zeros_like(values, dtype=np.float32)
+    else:
+        normalized = (values - low) / (high - low)
+        normalized = np.clip(normalized, 0.0, 1.0)
+    normalized[~np.isfinite(normalized)] = 0.0
+    return normalized.astype(np.float32)
 
 
 def float01_to_uint8(img: np.ndarray) -> np.ndarray:
@@ -29,16 +33,25 @@ def float01_to_uint8(img: np.ndarray) -> np.ndarray:
     return (np.clip(img, 0.0, 1.0) * 255.0).round().astype(np.uint8)
 
 
-def prepare_hr_reference(img: np.ndarray, force_square_size: Optional[int] = None) -> np.ndarray:
-    """Build the HR reference image used by metrics and degradation."""
-    img = robust_normalize_to_float01(img)
+def resize_with_padding(image: np.ndarray, target_size: int) -> np.ndarray:
+    """Resize a slice without distortion and pad it to a square."""
+    if image.ndim != 2:
+        raise ValueError(f"Expected a 2D slice, got shape {image.shape}")
+    if target_size < 1:
+        raise ValueError("Target size must be positive")
 
-    # Optional resize keeps all methods on a fixed input resolution.
-    if force_square_size is not None:
-        img = cv2.resize(
-            img,
-            (force_square_size, force_square_size),
-            interpolation=cv2.INTER_CUBIC,
-        )
+    height, width = image.shape
+    scale = min(target_size / height, target_size / width)
+    resized_width = max(1, round(width * scale))
+    resized_height = max(1, round(height * scale))
+    resized = cv2.resize(image, (resized_width, resized_height), interpolation=cv2.INTER_AREA)
+    output = np.zeros((target_size, target_size), dtype=np.float32)
+    top = (target_size - resized_height) // 2
+    left = (target_size - resized_width) // 2
+    output[top : top + resized_height, left : left + resized_width] = resized
+    return output
 
-    return np.clip(img, 0.0, 1.0).astype(np.float32)
+
+def prepare_hr_reference(normalized_slice: np.ndarray, target_size: int) -> np.ndarray:
+    """Prepare one already volume-normalized slice as the HR reference."""
+    return np.clip(resize_with_padding(normalized_slice, target_size), 0.0, 1.0)

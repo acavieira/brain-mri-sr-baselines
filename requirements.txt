@@ -2,6 +2,5 @@ numpy
 opencv-python
 matplotlib
 nibabel
-image-similarity-measures
-torch
-torchvision
+scikit-image
+pytest

@@ -1,26 +1,39 @@
-"""Configuration object for one baseline experiment execution."""
+"""Single source of truth for the classical baseline experiment."""
 
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import asdict, dataclass
+from typing import Any, Dict
 
 
-@dataclass
+ORIENTATIONS = ("axial", "coronal", "sagittal")
+METHODS = ("nearest", "bilinear", "bicubic", "lanczos")
+ISNR_BASELINE_METHOD = "bilinear"
+TARGET_SIZE = 256
+SLICES_PER_VOLUME = 30
+SCALE = 2
+BLUR_SIGMA = 0.65
+NOISE_SIGMA = 0.02
+RANDOM_SEED = 23
+LOW_PERCENTILE = 1.0
+HIGH_PERCENTILE = 99.0
+
+
+@dataclass(frozen=True)
 class ExperimentConfig:
-    """All runtime settings required by `run_experiment`."""
+    """Experimental parameters saved alongside every run."""
 
-    input_path: str
-    output_dir: str
+    input_dir: str = "data"
+    output_root: str = "results"
+    slices_per_volume: int = SLICES_PER_VOLUME
+    target_size: int = TARGET_SIZE
+    scale: int = SCALE
+    blur_sigma: float = BLUR_SIGMA
+    noise_sigma: float = NOISE_SIGMA
+    random_seed: int = RANDOM_SEED
+    low_percentile: float = LOW_PERCENTILE
+    high_percentile: float = HIGH_PERCENTILE
+    isnr_baseline_method: str = ISNR_BASELINE_METHOD
+    save_all_examples: bool = False
 
-    slice_axis: str = "sagittal"
-    slice_index: int = -1
-    num_slices: int = 9
-
-    scale: int = 4
-    blur_sigma: float = 0.55
-    noise_sigma: float = 0.01
-    isnr_baseline_method: str = "bilinear"
-
-    force_square_size: Optional[int] = None
-    save_all_figures: bool = False
-    error_vmax: float = 0.35
-    random_seed: int = 23
+    def to_dict(self) -> Dict[str, Any]:
+        """Return serializable parameters for run provenance."""
+        return asdict(self)

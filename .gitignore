@@ -2,5 +2,12 @@
 __pycache__/
 **/__pycache__/
 
+# Local environment and macOS metadata
+.venv/
+.DS_Store
+
+# Timestamped experiment outputs are reproducible artifacts
+results/run_*/
+
 # Diffusion checkpoints can exceed GitHub file-size limits
 results/diffusion/training/**/*.pt
