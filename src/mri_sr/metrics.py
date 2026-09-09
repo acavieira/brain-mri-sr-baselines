@@ -9,6 +9,12 @@ try:
 except Exception:
     issm_metric = None
 
+# SSIM computation constants - cached at module level to avoid recalculation
+_SSIM_KERNEL = (11, 11)
+_SSIM_SIGMA = 1.5
+_SSIM_C1 = (0.01 ** 2)
+_SSIM_C2 = (0.03 ** 2)
+
 
 def mse(ref: np.ndarray, pred: np.ndarray) -> float:
     diff = ref.astype(np.float32) - pred.astype(np.float32)
@@ -51,18 +57,15 @@ def ssim_and_map(ref: np.ndarray, pred: np.ndarray) -> Tuple[float, np.ndarray]:
     x = ref.astype(np.float64)
     y = pred.astype(np.float64)
 
-    c1 = (0.01 ** 2)
-    c2 = (0.03 ** 2)
+    mu_x = cv2.GaussianBlur(x, _SSIM_KERNEL, _SSIM_SIGMA)
+    mu_y = cv2.GaussianBlur(y, _SSIM_KERNEL, _SSIM_SIGMA)
 
-    mu_x = cv2.GaussianBlur(x, (11, 11), 1.5)
-    mu_y = cv2.GaussianBlur(y, (11, 11), 1.5)
+    sigma_x2 = cv2.GaussianBlur(x * x, _SSIM_KERNEL, _SSIM_SIGMA) - mu_x ** 2
+    sigma_y2 = cv2.GaussianBlur(y * y, _SSIM_KERNEL, _SSIM_SIGMA) - mu_y ** 2
+    sigma_xy = cv2.GaussianBlur(x * y, _SSIM_KERNEL, _SSIM_SIGMA) - mu_x * mu_y
 
-    sigma_x2 = cv2.GaussianBlur(x * x, (11, 11), 1.5) - mu_x ** 2
-    sigma_y2 = cv2.GaussianBlur(y * y, (11, 11), 1.5) - mu_y ** 2
-    sigma_xy = cv2.GaussianBlur(x * y, (11, 11), 1.5) - mu_x * mu_y
-
-    numerator = (2 * mu_x * mu_y + c1) * (2 * sigma_xy + c2)
-    denominator = (mu_x ** 2 + mu_y ** 2 + c1) * (sigma_x2 + sigma_y2 + c2)
+    numerator = (2 * mu_x * mu_y + _SSIM_C1) * (2 * sigma_xy + _SSIM_C2)
+    denominator = (mu_x ** 2 + mu_y ** 2 + _SSIM_C1) * (sigma_x2 + sigma_y2 + _SSIM_C2)
 
     ssim_map = numerator / (denominator + 1e-12)
     ssim_map = np.clip(ssim_map, -1.0, 1.0).astype(np.float32)
